@@ -1,0 +1,8 @@
+isOptimal = true
+cout = 1767.0
+gap = 0.0
+tournees = [
+[1,4,3,2,1]
+[1,5,1]
+];
+solveTime = 3.0939998626708984
