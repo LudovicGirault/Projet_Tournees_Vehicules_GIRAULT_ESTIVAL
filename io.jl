@@ -11,6 +11,8 @@ mutable struct Inst
 	C::Int64
 end
 
+### fonction de lecture de fichiers
+
 function readInputFile(inputFile::String)
 
 
@@ -77,6 +79,8 @@ function readInputFile(inputFile::String)
 
 end
 
+
+### recuperation des tournées depuis une solution
 function tournees(x::Array{Float64,2})
 
 	tournees = []
@@ -121,14 +125,14 @@ function tournees(x::Array{Int64,2})
 	return tournees
 end
 
+
+
+### fonction d'ecriture des tournées dans un fichier de solution
 function write(file::String,tournees::Array{Any,1})
 	fout = open(file,"w")
 	writetournees(fout,tournees)
 	close(fout)
-
-
 end
-
 function writetournees(fout::IOStream,tournees::Array{Any,1})
 
 	println(fout,"tournees = [")
@@ -281,7 +285,7 @@ end
 
 function resultsArray(outputFile::String)
     
-    resultFolder = "sol/"
+    resultFolder = "tmp/"
     dataFolder = "data/"
     
     # Maximal number of files in a subfolder
@@ -431,19 +435,23 @@ function resultsArray(outputFile::String)
 end 
 
 
+
+#### Fonction permettant la ré-écriture des fichiers de la solution dans le dossier tmp
+#### afin de conserver uniquement les informations permettant le tracé du diagramme de performances et des tableaux de résultats
+
 function rewrite()
 
 	dataFolder = "sol/"
     	resFolder = "tmp/"
 #	resolutionMethod = "dual"   
 #	resolutionMethod = "static"
-#	resolutionMethod = "lazycut"
-	resolutionMethod = "heuristic"
+	resolutionMethod = "lazycut"
+#	resolutionMethod = "heuristic"
 	dataFolder = dataFolder .* resolutionMethod
 	resolutionFolder = resFolder .* resolutionMethod
 
 	for file in readdir(dataFolder)
-		datafile = open(resolutionFolder * "/" *file)
+		datafile = open(dataFolder * "/" *file)
 
     		data = readlines(datafile)
     		close(datafile)
