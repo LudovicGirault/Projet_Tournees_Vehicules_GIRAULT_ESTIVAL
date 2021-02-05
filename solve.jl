@@ -47,8 +47,17 @@ function static_solve(inst::Inst)
 
 	optimize!(m)
 
-
-	return JuMP.primal_status(m) == JuMP.MathOptInterface.FEASIBLE_POINT, time() - start, round(objective_value(m)),MOI.get(m,MOI.RelativeGap())
+	### On renvoit la solution trouvée sous la forme d'un tableau de valeurs plutôt qu'un tableau JuMP
+	x_sol = zeros(n,n)
+	for i in 1:n
+		for j in 1:n
+			if i!=j
+				x_sol[i,j] = round(JuMP.value(x[i,j]))
+			end
+		end
+	end
+	
+	return JuMP.primal_status(m) == JuMP.MathOptInterface.FEASIBLE_POINT, time() - start, round(objective_value(m)),MOI.get(m,MOI.RelativeGap()),x_sol
 
 end
 
@@ -65,7 +74,7 @@ function dual_solve(inst::Inst)
 ### Definition du modele
 
 	m = Model(with_optimizer(CPLEX.Optimizer))
-	set_optimizer_attribute(m,"CPX_PARAM_TILIM",150)
+	set_optimizer_attribute(m,"CPX_PARAM_TILIM",300)
  # Variables
 
 	@variable(m,x[1:n,1:n],Bin)
@@ -231,7 +240,7 @@ function robust_lazy_solve(inst::Inst)
 ### Definition du problème maitre
 
 	m = Model(with_optimizer(CPLEX.Optimizer))
-		
+	set_optimizer_attribute(m,"CPX_PARAM_TILIM",300)	
 	#OPTIONS CPLEX
 	#-------------
 	# Désactive le presolve (simplification automatique du modèle)
@@ -309,17 +318,25 @@ end
 
 	optimize!(m)
 
-	return JuMP.primal_status(m) == JuMP.MathOptInterface.FEASIBLE_POINT, time() - start, round(objective_value(m)),MOI.get(m,MOI.RelativeGap())
-
+	xcb = zeros(n,n)
+	for i in 1:n
+		for j in 1:n
+			if i!=j
+				xcb[i,j] = round(JuMP.value(x[i,j]))
+			end
+		end
+	end
+	
+	return JuMP.primal_status(m) == JuMP.MathOptInterface.FEASIBLE_POINT, time() - start, round(objective_value(m)),MOI.get(m,MOI.RelativeGap()),xcb
 end
 
 function solve_all()
 	dataFolder = "data/"
     	resFolder = "sol/"
-#	resolutionMethod = "dual"   
+	resolutionMethod = "dual"   
 #	resolutionMethod = "static"
 #	resolutionMethod = "lazycut"
-	resolutionMethod = "coupant"
+#	resolutionMethod = "coupant"
 #	resolutionMethod = "heuristic"
 	resolutionFolder = resFolder .* resolutionMethod
 
@@ -387,9 +404,44 @@ function solve_all()
 			println(fout,"cout = ",value)
 			writetournees(fout,tour)
 			println(fout,"solveTime = ",resolutionTime)
-
+		elseif 	resolutionMethod == "lazycut"
+			outputFile = resolutionFolder * "/" * file
+                	fout = open(outputFile, "w")  
+                	resolutionTime = -1
+                	isOptimal = false
+			isOptimal, resolutionTime,value,gap,x = robust_lazy_solve(inst)
+			if isOptimal
+				println(fout,"isOptimal = ", isOptimal)
+				println(fout,"cout = ",value)
+				println(fout,"gap = ",gap)
+				tour = tournees(x)
+				writetournees(fout,tour)
+				println(fout,"solveTime = ",resolutionTime)
+			else 
+				println(fout,"isOptimal = ", isOptimal)
+				println(fout,"solveTime = ",resolutionTime)
+			end
+			close(fout)
+			
+		elseif 	resolutionMethod == "static"
+			outputFile = resolutionFolder * "/" * file
+                	fout = open(outputFile, "w")  
+                	resolutionTime = -1
+                	isOptimal = false
+			isOptimal, resolutionTime,value,gap,x = static_solve(inst)
+			if isOptimal
+				println(fout,"isOptimal = ", isOptimal)
+				println(fout,"cout = ",value)
+				println(fout,"gap = ",gap)
+				tour = tournees(x)
+				writetournees(fout,tour)
+				println(fout,"solveTime = ",resolutionTime)
+			else 
+				println(fout,"isOptimal = ", isOptimal)
+				println(fout,"solveTime = ",resolutionTime)
+			end
+			close(fout)
 		end
-
 	end
 end
 
@@ -403,32 +455,41 @@ function heuristic_solve(inst::Inst)
 	d = inst.d
 	C = inst.C
 
+	### on va chercher à former des tournées valides
 	deja_trie = zeros(Int64,n)
 	deja_trie[1] = 1
 	vaccins = 0
-	copy_d = deepcopy(d)
+	copy_d = deepcopy(d)   ### on copie la liste des demandes afin de ne pas la modifier par la suite lors des itérations
 	tournees = []
 	i = 0
+	## tant que tous les clients n'ont pas été livrés :
 	while 0 in deja_trie
+		## au départ : pas de vaccins déplacés dans la tournée
+		## on initialise la nouvelle tournée
 		vaccins = 0
-		m = findfirst(isequal(maximum(copy_d)),copy_d)
-		tournees=vcat(tournees,[[m]])
+		m = findfirst(isequal(maximum(copy_d)),copy_d)   ### client demandant le plus de vaccins
+		tournees=vcat(tournees,[[m]])   ### on livre ce client
 		i += 1
 		vaccins += copy_d[m]
-		deja_trie[m] = 1
-		copy_d[m] = -1
+		deja_trie[m] = 1    ### le client est processed
+		copy_d[m] = -1      ### il ne demande plus de vaccins
+		### tant que l'on peut possiblement livrer des vaccins :
 		while vaccins < C
 			max_ind = 1
 			vaccins_max = vaccins + copy_d[max_ind]
+			### on cherche le client qui demande le plus de vaccins et qui n'est pas encore livré
 			for j in 2:n
 				if vaccins_max < vaccins + copy_d[j] && vaccins + copy_d[j] < C
 					max_ind = j
 					vaccins_max = vaccins + copy_d[j] 
 				end
 			end
+			### si on n'en a pas trouvé : c'est que l'on ne peut livrer d'autres clients,
+			### on revient au dépot et on lance une nouvelle tournée si il reste des clients
 			if max_ind == 1 
 				vaccins = C
 			else
+			### sinon, on livre le client et on réitère la recherche du client le plus demandeur
 				vaccins = vaccins_max
 				tournees[i] = vcat(tournees[i],[max_ind])
 				deja_trie[max_ind] = 1
@@ -437,6 +498,7 @@ function heuristic_solve(inst::Inst)
 		end	
 	end
 	cout = 0
+	### calcul du coût actuel de la tournée
 	for tour in tournees
 		taille = length(tour)
 		cout += t[1,tour[1]]
@@ -445,20 +507,23 @@ function heuristic_solve(inst::Inst)
 		end
 		cout += t[tour[taille],1]
 	end
-#	return cout,tournees,time() - start
-	### Phase de descente 
+#	return cout,tournees,time() - start    ### on peut renvoyer la solution trouvée sans phase de descente
+	### Phase de descente : on cherche à améliorer la solution trouvée
 	i = 0
 	taille_tournee = length(tournees)
 	while i < 1000
 		current_tournees = deepcopy(tournees)
 		new_cout = 0
+		### on choisit au hasard une tournée
 		ind = rand(1:taille_tournee)
 		tour = tournees[ind]
 		taille = length(tour)
+		### on permute deux éléments au hasard de cette tournée
 		client1 = rand(1:taille)
 		client2 = rand(1:taille)
 		current_tournees[ind][client1] = tournees[ind][client2]
 		current_tournees[ind][client2] = tournees[ind][client1]
+		## on calcule le nouveau coût de la tournée
 		for tour in current_tournees
 			taille = length(tour)
 			new_cout += t[1,tour[1]]
@@ -467,6 +532,7 @@ function heuristic_solve(inst::Inst)
 			end
 			new_cout += t[tour[taille],1]
 		end
+		### si le nouveau coût est meilleur, on garde cette tournée, sinon on n'enregistre pas la nouvelle tournée
 		if new_cout < cout 
 			tournees[ind][client1] = current_tournees[ind][client1]
 			tournees[ind][client2] = current_tournees[ind][client2]
